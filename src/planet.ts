@@ -36,6 +36,110 @@ export class NoiseParams {
 
 };
 
+class Vertex {
+    position: Vector3;
+    edge: boolean;
+
+    constructor(position: Vector3, edge: boolean) {
+        this.position = position;
+        this.edge = edge;
+    }
+
+    cutSphere(other: Vertex, radius: number, edge?: boolean): Vertex {
+        return new Vertex(this.position.add(other.position).normalize().scaleInPlace(radius), edge ?? (this.edge && other.edge));
+    }
+
+    cutLinear(other: Vertex, edge?: boolean): Vertex {
+        return new Vertex(this.position.add(other.position).scaleInPlace(0.5), edge ?? (this.edge && other.edge));
+    }
+}
+
+class PatchBuilder {
+    planet: Planet;
+    vertices: Vertex[];
+    blockCoords: Vector3[];
+    texCoords: Vector2[];
+    quads: number[][];
+
+    constructor(planet: Planet, vertices: Vertex[], blockCoords: Vector3[], texCoords: Vector2[], quads: number[][]) {
+        this.planet = planet;
+        this.vertices = vertices;
+        this.blockCoords = blockCoords;
+        this.texCoords = texCoords;
+        this.quads = quads;
+    }
+
+    subdivide() {
+        const newQuads: number[][] = [];
+
+        for (const [i, j, k, l] of this.quads) {
+            const n = this.vertices.length;
+
+            {
+                const a = this.vertices[i];
+                const b = this.vertices[j];
+                const c = this.vertices[k];
+                const d = this.vertices[l];
+
+                const ab = a.cutSphere(b, this.planet.radius);
+                const bc = b.cutSphere(c, this.planet.radius);
+                const cd = c.cutSphere(d, this.planet.radius);
+                const da = d.cutSphere(a, this.planet.radius);
+                const abcd = ab.cutSphere(cd, this.planet.radius, false);
+
+                this.vertices.push(abcd, ab, bc, cd, da);
+            }
+
+            {
+                const a = this.blockCoords[i];
+                const b = this.blockCoords[j];
+                const c = this.blockCoords[k];
+                const d = this.blockCoords[l];
+
+                const ab = a.add(b).scale(0.5);
+                const bc = b.add(c).scale(0.5);
+                const cd = c.add(d).scale(0.5);
+                const da = d.add(a).scale(0.5);
+                const abcd = ab.add(cd).scale(0.5);
+
+                this.blockCoords.push(abcd, ab, bc, cd, da);
+            }
+
+            {
+                const a = this.texCoords[i];
+                const b = this.texCoords[j];
+                const c = this.texCoords[k];
+                const d = this.texCoords[l];
+
+                const ab = a.add(b).scale(0.5);
+                const bc = b.add(c).scale(0.5);
+                const cd = c.add(d).scale(0.5);
+                const da = d.add(a).scale(0.5);
+                const abcd = ab.add(cd).scale(0.5);
+
+                this.texCoords.push(abcd, ab, bc, cd, da);
+            }
+
+            newQuads.push([i, n + 1, n, n + 4]);
+            newQuads.push([j, n + 2, n, n + 1]);
+            newQuads.push([k, n + 3, n, n + 2]);
+            newQuads.push([l, n + 4, n, n + 3]);
+        }
+
+        this.quads = newQuads;
+    }
+
+    displace(detail: number) {
+        for (let i = 0; i < this.vertices.length; i++) {
+            const coord = this.blockCoords[i];
+            const height = this.planet.heightAt(coord, detail);
+
+            const normal = this.vertices[i].position.normalizeToNew();
+            this.vertices[i].position.addInPlace(normal.scale(height));
+        }
+    }
+}
+
 class Planet {
     readonly radius: number;
 
@@ -178,103 +282,47 @@ class Planet {
             new Vector3(-r, -r, r),
         ];
 
-        const vertices = quads.map((quad) => quad.map((i) => points[i].clone())).flat();
-        const blockCoords = quads.map((quad) => quad.map((i) => points[i])).flat();
-        const texCoords = quads.map((_, index) => [
-            new Vector2((index % 3) / 3, Math.trunc(index / 3) / 3),
-            new Vector2((index % 3 + 1) / 3, Math.trunc(index / 3) / 3),
-            new Vector2((index % 3 + 1) / 3, Math.trunc(index / 3 + 1) / 3),
-            new Vector2((index % 3) / 3, Math.trunc(index / 3 + 1) / 3),
-        ]).flat();
+        const patches = quads.map((indices, index) => {
+            const vertices = indices.map((i) => new Vertex(points[i].clone(), true));
+            const blockCoords = indices.map((i) => points[i].clone());
+            const texCoords = [
+                new Vector2((index % 3) / 3, Math.trunc(index / 3) / 3),
+                new Vector2((index % 3 + 1) / 3, Math.trunc(index / 3) / 3),
+                new Vector2((index % 3 + 1) / 3, Math.trunc(index / 3 + 1) / 3),
+                new Vector2((index % 3) / 3, Math.trunc(index / 3 + 1) / 3),
+            ];
+            const patch = new PatchBuilder(this, vertices, blockCoords, texCoords, [[0, 1, 2, 3]]);
+            return patch;
+        });
 
-        quads = [
-            [0, 1, 2, 3],
-            [4, 5, 6, 7],
-            [8, 9, 10, 11],
-            [12, 13, 14, 15],
-            [16, 17, 18, 19],
-            [20, 21, 22, 23],
-        ];
-
-        const subdivide = (vertices: Vector3[], blockCoords: Vector3[], texCoords: Vector2[], quads: number[][]): number[][] => {
-            const newQuads: number[][] = [];
-
-            for (const [i, j, k, l] of quads) {
-                const n = vertices.length;
-
-                {
-                    const a = vertices[i];
-                    const b = vertices[j];
-                    const c = vertices[k];
-                    const d = vertices[l];
-
-                    const ab = a.add(b).normalize().scale(this.radius);
-                    const bc = b.add(c).normalize().scale(this.radius);
-                    const cd = c.add(d).normalize().scale(this.radius);
-                    const da = d.add(a).normalize().scale(this.radius);
-                    const abcd = ab.add(cd).normalize().scale(this.radius);
-
-                    vertices.push(abcd, ab, bc, cd, da);
-                }
-
-                {
-                    const a = blockCoords[i];
-                    const b = blockCoords[j];
-                    const c = blockCoords[k];
-                    const d = blockCoords[l];
-
-                    const ab = a.add(b).scale(0.5);
-                    const bc = b.add(c).scale(0.5);
-                    const cd = c.add(d).scale(0.5);
-                    const da = d.add(a).scale(0.5);
-                    const abcd = ab.add(cd).scale(0.5);
-
-                    blockCoords.push(abcd, ab, bc, cd, da);
-                }
-
-                {
-                    const a = texCoords[i];
-                    const b = texCoords[j];
-                    const c = texCoords[k];
-                    const d = texCoords[l];
-
-                    const ab = a.add(b).scale(0.5);
-                    const bc = b.add(c).scale(0.5);
-                    const cd = c.add(d).scale(0.5);
-                    const da = d.add(a).scale(0.5);
-                    const abcd = ab.add(cd).scale(0.5);
-
-                    texCoords.push(abcd, ab, bc, cd, da);
-                }
-
-                newQuads.push([i, n + 1, n, n + 4]);
-                newQuads.push([j, n + 2, n, n + 1]);
-                newQuads.push([k, n + 3, n, n + 2]);
-                newQuads.push([l, n + 4, n, n + 3]);
+        for (const patch of patches) {
+            for (let i = 0; i < subdivisions; i++) {
+                patch.subdivide();
             }
 
-            return newQuads;
-        };
-
-        const displace = (vertices: Vector3[], blockCoords: Vector3[]) => {
-            for (let i = 0; i < vertices.length; i++) {
-                const coord = blockCoords[i];
-                const height = this.heightAt(coord, 1 + subdivisions / 2)
-
-                const normal = vertices[i].normalizeToNew();
-                vertices[i].addInPlace(normal.scale(height));
-            }
-        };
-
-        for (let i = 0; i < subdivisions; i++) {
-            quads = subdivide(vertices, blockCoords, texCoords, quads);
+            patch.displace(1 + subdivisions / 2);
         }
 
-        displace(vertices, blockCoords);
+        const positions: number[] = [];
+        const indices: number[] = [];
+        const uvs: number[] = [];
 
-        const positions = vertices.map((v) => v.asArray()).flat();
-        const indices = quads.map(([i, j, k, l]) => [i, j, k, k, l, i]).flat();
-        const uvs = texCoords.map((v) => v.asArray()).flat();
+        let offset = 0;
+
+        for (const patch of patches) {
+            patch.vertices.forEach((vertex) => positions.push(...vertex.position.asArray()));
+            patch.texCoords.forEach((uv) => uvs.push(...uv.asArray()));
+            patch.quads.forEach(([i, j, k, l]) => {
+                i += offset;
+                j += offset;
+                k += offset;
+                l += offset;
+                indices.push(i, j, k, k, l, i);
+            });
+
+            offset += patch.vertices.length;
+        }
+
         const normals: number[] = [];
 
         VertexData.ComputeNormals(positions, indices, normals);
