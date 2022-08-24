@@ -1,36 +1,79 @@
-import { Mesh, RawTexture, Scene, Texture, Vector2, Vector3, VertexData } from "@babylonjs/core";
+import { Color3, Mesh, RawTexture, Scene, Texture, Vector2, Vector3, VertexData } from "@babylonjs/core";
 import { createNoise3D, NoiseFunction3D } from "simplex-noise";
 
-type PlanetOptions = { offset?: number, amplitude?: number, frequency?: Vector3, diffuseFrequency?: Vector3 };
+export class NoiseParams {
+    func: NoiseFunction3D;
+    allowNegative: boolean = true;
+    offset: number = 0.0;
+    amplitude: number = 1.0;
+    frequency: Vector3 = Vector3.One();
+    octaveScale: number = 2.0;
+    octaveAmplitude: number = 0.8;
+
+    constructor() {
+        this.func = createNoise3D();
+    }
+
+    sample3D(coord: Vector3, detail: number): number {
+        let result = this.offset;
+
+        let amplitude = this.amplitude;
+        coord.multiplyInPlace(this.frequency);
+
+        for (let i = 0; i < detail; i++) {
+            let value = this.func(coord.x, coord.y, coord.z);
+            if (!this.allowNegative) {
+                value = value * 0.5 + 0.5;
+            }
+            result += value * amplitude;
+
+            amplitude *= this.octaveAmplitude;
+            coord.scaleInPlace(this.octaveScale);
+        }
+
+        return result;
+    }
+
+};
 
 class Planet {
     readonly radius: number;
-    readonly offset: number;
-    readonly amplitude: number;
-    readonly frequency: Vector3;
-    readonly diffuseFrequency: Vector3;
-    private heightFunc: NoiseFunction3D;
-    private diffuseFunc: NoiseFunction3D;
 
-    private static defaultOptions = {
-        offset: 0,
-        amplitude: 0.1,
-        frequency: new Vector3(1.0, 1.0, 1.0),
-        diffuseFrequency: new Vector3(8.0, 8.0, 8.0),
-    };
+    private color1: Color3;
+    private color2: Color3;
+    private heightParams: NoiseParams;
+    private textureParams: NoiseParams;
 
-    constructor(radius: number, options?: PlanetOptions) {
+    constructor(radius: number, color1: Color3, color2: Color3, options?: { height?: NoiseParams, texture?: NoiseParams }) {
         this.radius = radius;
-        this.offset = options?.offset ?? Planet.defaultOptions.offset;
-        this.amplitude = options?.amplitude ?? Planet.defaultOptions.amplitude;
-        this.frequency = options?.frequency ?? Planet.defaultOptions.frequency;
-        this.diffuseFrequency = options?.diffuseFrequency ?? Planet.defaultOptions.diffuseFrequency;
 
-        this.heightFunc = createNoise3D();
-        this.diffuseFunc = createNoise3D();
+        this.color1 = color1.toHSV();
+        this.color2 = color2.toHSV();
+        if (options?.height) {
+            this.heightParams = options.height;
+        } else {
+            this.heightParams = new NoiseParams();
+            this.heightParams.amplitude = radius * 0.01;
+        }
+        if (options?.texture) {
+            this.textureParams = options.texture;
+        } else {
+            this.textureParams = new NoiseParams();
+            this.textureParams.allowNegative = false;
+        }
     }
 
-    createTexture(name: string, res: number, scene: Scene): RawTexture {
+    heightAt(coord: Vector3, detail: number): number {
+        return this.heightParams.sample3D(coord, detail);
+    }
+
+    colorAt(coord: Vector3, detail: number): Color3 {
+        const value = Math.max(0, Math.min(1, this.textureParams.sample3D(coord, detail)));
+        const hsv = this.color1.add(this.color2.subtract(this.color1).scale(value));
+        return Color3.FromHSV(hsv.r, hsv.g, hsv.b);
+    }
+
+    createTexture(name: string, res: number, detail: number, scene: Scene): RawTexture {
         let quads = [
             [0, 1, 2, 3],
             [5, 4, 3, 2],
@@ -93,19 +136,16 @@ class Planet {
                 for (let x = 0; x < res; x++) {
                     const r = x / res;
 
-                    const coord = ad.add(bc.subtract(ad).scale(r)).multiply(this.diffuseFrequency);
+                    const coord = ad.add(bc.subtract(ad).scale(r));
                     const u = width * uv0.x + x;
 
-                    const value = Math.max(0, Math.min(1, this.diffuseFunc(coord.x, coord.y, coord.z)));
+                    const color = this.colorAt(coord, detail);
 
                     const index = v * yStride + u * xStride;
 
-                    data[index + 0] = Math.trunc(value * 255);
-                    data[index + 1] = Math.trunc(value * 255);
-                    data[index + 2] = Math.trunc(value * 255);
-                    // data[index + 0] = Math.trunc(uv.x * 255);
-                    // data[index + 1] = Math.trunc(uv.y * 255);
-                    // data[index + 2] = 0;
+                    data[index + 0] = Math.trunc(color.r * 255);
+                    data[index + 1] = Math.trunc(color.g * 255);
+                    data[index + 2] = Math.trunc(color.b * 255);
                 }
             }
         }
@@ -138,7 +178,7 @@ class Planet {
             new Vector3(-r, -r, r),
         ];
 
-        const vertices = quads.map((quad) => quad.map((i) => points[i])).flat();
+        const vertices = quads.map((quad) => quad.map((i) => points[i].clone())).flat();
         const blockCoords = quads.map((quad) => quad.map((i) => points[i])).flat();
         const texCoords = quads.map((_, index) => [
             new Vector2((index % 3) / 3, Math.trunc(index / 3) / 3),
@@ -218,11 +258,11 @@ class Planet {
 
         const displace = (vertices: Vector3[], blockCoords: Vector3[]) => {
             for (let i = 0; i < vertices.length; i++) {
-                const coord = blockCoords[i].multiply(this.frequency);
-                const height = this.heightFunc(coord.x, coord.y, coord.z);
+                const coord = blockCoords[i];
+                const height = this.heightAt(coord, 1 + subdivisions / 2)
 
                 const normal = vertices[i].normalizeToNew();
-                vertices[i].addInPlace(normal.scale(this.amplitude * height));
+                vertices[i].addInPlace(normal.scale(height));
             }
         };
 
