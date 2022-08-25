@@ -107,26 +107,44 @@ export class NoiseParams {
 class Vertex {
     position: Vector3;
     edge: boolean;
-    subdivisions: number;
+    centerPiece?: boolean;
+    depth: number;
+    parentL?: Vertex;
+    parentR?: Vertex;
 
-    constructor(position: Vector3, edge: boolean, subdivisions: number) {
+    constructor(position: Vector3, edge: boolean, depth: number) {
         this.position = position;
         this.edge = edge;
-        this.subdivisions = subdivisions;
+        this.depth = depth;
+        this.centerPiece = false;
     }
 
-    cutSphere(other: Vertex, radius: number, edge?: boolean): Vertex {
+    cutSphere(other: Vertex, radius: number, edge?: boolean, centerPiece?: boolean): Vertex {
         const position = this.position.add(other.position).normalize().scaleInPlace(radius);
+        let depth = Math.max(this.depth, other.depth) + 1;
+        if (edge === false) {
+            depth -= 1;
+        }
         edge = edge ?? (this.edge && other.edge);
-        const subdivisions = Math.max(this.subdivisions, other.subdivisions) + 1;
-        return new Vertex(position, edge, subdivisions);
+        const vertex = new Vertex(position, edge, depth);
+        vertex.parentL = this;
+        vertex.parentR = other;
+        vertex.centerPiece = centerPiece ?? false;
+        return vertex;
     }
 
-    cutLinear(other: Vertex, edge?: boolean): Vertex {
+    cutLinear(other: Vertex, edge?: boolean, centerPiece?: boolean): Vertex {
         const position = this.position.add(other.position).scaleInPlace(0.5);
+        let depth = Math.max(this.depth, other.depth) + 1;
+        if (edge === false) {
+            depth -= 1;
+        }
         edge = edge ?? (this.edge && other.edge);
-        const subdivisions = Math.max(this.subdivisions, other.subdivisions) + 1;
-        return new Vertex(position, edge, subdivisions);
+        const vertex = new Vertex(position, edge, depth);
+        vertex.parentL = this;
+        vertex.parentR = other;
+        vertex.centerPiece = centerPiece ?? false;
+        return vertex;
     }
 }
 
@@ -161,7 +179,7 @@ class PatchBuilder {
                 const bc = b.cutSphere(c, this.planet.radius);
                 const cd = c.cutSphere(d, this.planet.radius);
                 const da = d.cutSphere(a, this.planet.radius);
-                const abcd = ab.cutSphere(cd, this.planet.radius, false);
+                const abcd = ab.cutSphere(cd, this.planet.radius, false, true);
 
                 this.vertices.push(abcd, ab, bc, cd, da);
             }
@@ -256,7 +274,7 @@ class PatchBuilder {
                 const bc = b.cutSphere(c, this.planet.radius);
                 const cd = c.cutSphere(d, this.planet.radius);
                 const da = d.cutSphere(a, this.planet.radius);
-                const abcd = ab.cutSphere(cd, this.planet.radius, false);
+                const abcd = ab.cutSphere(cd, this.planet.radius, false, true);
 
                 this.vertices.push(abcd, ab, bc, cd, da);
             }
@@ -306,14 +324,41 @@ class PatchBuilder {
         return subdivided;
     }
 
-    displace() {
+    displace(target?: Vector3, lods?: Lod[]) {
         for (let i = 0; i < this.vertices.length; i++) {
-            const detail = 1 + this.vertices[i].subdivisions / 2;
-            const coord = this.blockCoords[i];
-            const height = this.planet.heightAt(coord, detail);
+            const vertex = this.vertices[i];
 
-            const normal = this.vertices[i].position.normalizeToNew();
-            this.vertices[i].position.addInPlace(normal.scale(height));
+            let height;
+
+            if (!vertex.centerPiece && target && lods) {
+                const distance = Vector3.Distance(target, vertex.position.add(this.planet.position));
+
+                let subdivisions;
+                for (const lod of lods) {
+                    if (distance < lod.distance) {
+                        subdivisions = lod.subdivisions;
+                        break;
+                    }
+                }
+
+                if (subdivisions && vertex.depth > subdivisions) {
+                    const l = vertex.parentL?.position.length();
+                    const r = vertex.parentR?.position.length();
+                    if (!l || !r) {
+                        continue;
+                    }
+                    height = (l + r) * 0.5 - this.planet.radius;
+                }
+            }
+
+            if (!height) {
+                const detail = 1 + vertex.depth / 2;
+                const coord = this.blockCoords[i];
+                height = this.planet.heightAt(coord, detail);
+            }
+
+            const normal = vertex.position.normalizeToNew();
+            vertex.position.addInPlace(normal.scale(height));
         }
     }
 }
@@ -578,7 +623,7 @@ class Planet {
                 subdivisions += 1;
             }
 
-            patch.displace();
+            patch.displace(target, lods);
         }
 
         const positions: number[] = [];
