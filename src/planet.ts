@@ -18,9 +18,8 @@ class Lod {
 export class PlanetManager {
     target: Target;
     planets: Planet[] = [];
-    viewDistance: number = 10;
+    viewDistance = 10;
     surfaceLods: Lod[] = [
-        new Lod(5, 9),
         new Lod(10, 8),
         new Lod(20, 7),
         new Lod(30, 6),
@@ -34,7 +33,7 @@ export class PlanetManager {
         new Lod(5000, 1),
     ];
 
-    private epsilon: number = 1.0;
+    private epsilon = 1.0;
     private lastPosition?: Vector3;
 
     constructor(target: Target) {
@@ -49,7 +48,7 @@ export class PlanetManager {
         for (const planet of this.planets) {
             const distance = Vector3.Distance(this.target.position, planet.position);
             if (distance < planet.atmosphere) {
-                planet.createSurfaceMesh(this.target.position, this.surfaceLods, scene);
+                scene.onBeforeRenderObservable.runCoroutineAsync(planet.createSurfaceMesh(this.target.position, this.surfaceLods, scene));
             } else {
                 let subdivisions;
                 for (const lod of this.lods) {
@@ -71,12 +70,12 @@ export class PlanetManager {
 
 export class NoiseParams {
     func: NoiseFunction3D;
-    allowNegative: boolean = true;
-    offset: number = 0.0;
-    amplitude: number = 1.0;
-    frequency: Vector3 = Vector3.One();
-    octaveScale: number = 2.0;
-    octaveAmplitude: number = 0.8;
+    allowNegative = true;
+    offset = 0.0;
+    amplitude = 1.0;
+    frequency = Vector3.One();
+    octaveScale = 2.0;
+    octaveAmplitude = 0.8;
 
     constructor() {
         this.func = createNoise3D();
@@ -102,7 +101,7 @@ export class NoiseParams {
         return result;
     }
 
-};
+}
 
 class Vertex {
     position: Vector3;
@@ -190,11 +189,11 @@ class PatchBuilder {
                 const c = this.blockCoords[k];
                 const d = this.blockCoords[l];
 
-                const ab = a.add(b).scale(0.5);
-                const bc = b.add(c).scale(0.5);
-                const cd = c.add(d).scale(0.5);
-                const da = d.add(a).scale(0.5);
-                const abcd = ab.add(cd).scale(0.5);
+                const ab = a.add(b).scaleInPlace(0.5);
+                const bc = b.add(c).scaleInPlace(0.5);
+                const cd = c.add(d).scaleInPlace(0.5);
+                const da = d.add(a).scaleInPlace(0.5);
+                const abcd = ab.add(cd).scaleInPlace(0.5);
 
                 this.blockCoords.push(abcd, ab, bc, cd, da);
             }
@@ -205,11 +204,11 @@ class PatchBuilder {
                 const c = this.texCoords[k];
                 const d = this.texCoords[l];
 
-                const ab = a.add(b).scale(0.5);
-                const bc = b.add(c).scale(0.5);
-                const cd = c.add(d).scale(0.5);
-                const da = d.add(a).scale(0.5);
-                const abcd = ab.add(cd).scale(0.5);
+                const ab = a.add(b).scaleInPlace(0.5);
+                const bc = b.add(c).scaleInPlace(0.5);
+                const cd = c.add(d).scaleInPlace(0.5);
+                const da = d.add(a).scaleInPlace(0.5);
+                const abcd = ab.add(cd).scaleInPlace(0.5);
 
                 this.texCoords.push(abcd, ab, bc, cd, da);
             }
@@ -225,9 +224,9 @@ class PatchBuilder {
 
     subdivideSurface(target: Vector3, lods: Lod[], count: number): boolean {
         const rectDistance = (min: Vector3, max: Vector3, p: Vector3) => {
-            var dx = Math.max(min.x - p.x, 0, p.x - max.x);
-            var dy = Math.max(min.y - p.y, 0, p.y - max.y);
-            var dz = Math.max(min.z - p.z, 0, p.z - max.z);
+            const dx = Math.max(min.x - p.x, 0, p.x - max.x);
+            const dy = Math.max(min.y - p.y, 0, p.y - max.y);
+            const dz = Math.max(min.z - p.z, 0, p.z - max.z);
             return Math.sqrt(dx * dx + dy * dy + dz * dz);
         };
 
@@ -285,11 +284,11 @@ class PatchBuilder {
                 const c = this.blockCoords[k];
                 const d = this.blockCoords[l];
 
-                const ab = a.add(b).scale(0.5);
-                const bc = b.add(c).scale(0.5);
-                const cd = c.add(d).scale(0.5);
-                const da = d.add(a).scale(0.5);
-                const abcd = ab.add(cd).scale(0.5);
+                const ab = a.add(b).scaleInPlace(0.5);
+                const bc = b.add(c).scaleInPlace(0.5);
+                const cd = c.add(d).scaleInPlace(0.5);
+                const da = d.add(a).scaleInPlace(0.5);
+                const abcd = ab.add(cd).scaleInPlace(0.5);
 
                 this.blockCoords.push(abcd, ab, bc, cd, da);
             }
@@ -300,11 +299,11 @@ class PatchBuilder {
                 const c = this.texCoords[k];
                 const d = this.texCoords[l];
 
-                const ab = a.add(b).scale(0.5);
-                const bc = b.add(c).scale(0.5);
-                const cd = c.add(d).scale(0.5);
-                const da = d.add(a).scale(0.5);
-                const abcd = ab.add(cd).scale(0.5);
+                const ab = a.add(b).scaleInPlace(0.5);
+                const bc = b.add(c).scaleInPlace(0.5);
+                const cd = c.add(d).scaleInPlace(0.5);
+                const da = d.add(a).scaleInPlace(0.5);
+                const abcd = ab.add(cd).scaleInPlace(0.5);
 
                 this.texCoords.push(abcd, ab, bc, cd, da);
             }
@@ -374,6 +373,8 @@ class Planet {
     private heightParams: NoiseParams;
     private textureParams: NoiseParams;
 
+    lodMesh: (Mesh | undefined)[] = [];
+    atmoMesh?: Mesh;
     mesh?: Mesh;
     material?: Material;
 
@@ -491,9 +492,20 @@ class Planet {
     }
 
     createMesh(subdivisions: number, scene: Scene): Mesh {
+        if (this.mesh) {
+            this.mesh.isVisible = false;
+        }
+
+        const lodMesh = this.lodMesh[subdivisions];
+        if (lodMesh) {
+            this.mesh = lodMesh;
+            this.mesh.isVisible = true;
+            return this.mesh;
+        }
+
         const r = this.radius / Math.sqrt(3);
 
-        let quads = [
+        const quads = [
             [0, 1, 2, 3],
             [5, 4, 3, 2],
             [6, 5, 2, 1],
@@ -558,9 +570,8 @@ class Planet {
 
         VertexData.ComputeNormals(positions, indices, normals);
 
-        if (!this.mesh) {
-            this.mesh = new Mesh(this.name, scene);
-        }
+        this.mesh = new Mesh(this.name, scene);
+        this.lodMesh[subdivisions] = this.mesh;
 
         const vertexData = new VertexData();
         vertexData.positions = positions;
@@ -576,13 +587,15 @@ class Planet {
             this.mesh.material = this.material;
         }
 
+        this.mesh.isVisible = true;
+
         return this.mesh;
     }
 
-    createSurfaceMesh(target: Vector3, lods: Lod[], scene: Scene): Mesh {
+    *createSurfaceMesh(target: Vector3, lods: Lod[], scene: Scene) {
         const r = this.radius / Math.sqrt(3);
 
-        let quads = [
+        const quads = [
             [0, 1, 2, 3],
             [5, 4, 3, 2],
             [6, 5, 2, 1],
@@ -619,11 +632,16 @@ class Planet {
             let subdivisions = 0;
             let subdivide = true;
             while (subdivide) {
+                if (subdivisions > 5) {
+                    yield;
+                }
                 subdivide = patch.subdivideSurface(target, lods, subdivisions);
                 subdivisions += 1;
             }
+            yield;
 
             patch.displace(target, lods);
+            yield;
         }
 
         const positions: number[] = [];
@@ -650,8 +668,15 @@ class Planet {
 
         VertexData.ComputeNormals(positions, indices, normals);
 
-        if (!this.mesh) {
+        if (this.mesh) {
+            this.mesh.isVisible = false;
+        }
+
+        if (this.atmoMesh) {
+            this.mesh = this.atmoMesh;
+        } else if (!this.mesh) {
             this.mesh = new Mesh(this.name, scene);
+            this.atmoMesh = this.mesh;
         }
 
         const vertexData = new VertexData();
@@ -668,7 +693,7 @@ class Planet {
             this.mesh.material = this.material;
         }
 
-        return this.mesh;
+        this.mesh.isVisible = true;
     }
 }
 

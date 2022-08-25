@@ -1,4 +1,4 @@
-import { ArcRotateCamera, Color3, Engine, FlyCamera, HemisphericLight, Scene, StandardMaterial, Vector3 } from '@babylonjs/core'
+import { Color3, Engine, FlyCamera, HemisphericLight, Scene, StandardMaterial, Vector3 } from '@babylonjs/core'
 import Planet, { NoiseParams, PlanetManager } from './planet';
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
@@ -10,15 +10,12 @@ const createScene = () => {
 
     const scene = new Scene(engine);
 
-    // const camera = new ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 2.5, 100, new Vector3(0, 50, 0));
-    // camera.attachControl(canvas, true);
-
     const camera = new FlyCamera("camera", new Vector3(0, 60, 0), scene);
     camera.rollCorrect = 10;
     camera.bankedTurn = true;
     camera.attachControl(true);
 
-    const light = new HemisphericLight("light", new Vector3(1, 3, 0), scene);
+    new HemisphericLight("light", new Vector3(1.5, 1, 0).normalize(), scene);
 
     const rand = (min: number, max: number): number => Math.random() * (max - min) + min;
 
